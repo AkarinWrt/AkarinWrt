@@ -12,9 +12,9 @@ PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/procd.git
-PKG_MIRROR_HASH:=75a92c01ef85f41dc7e0b77ac35f464fbe45942af02ca6847516c4ebf574c4a4
-PKG_SOURCE_DATE:=2023-01-16
-PKG_SOURCE_VERSION:=190f13a75e67e0bdb662188da79b8be31e0aae01
+PKG_MIRROR_HASH:=9a0f7a5dfc883e7ea2f7f779e2e68f93507477ca780945219f808b145db5e71d
+PKG_SOURCE_DATE:=2024-07-07
+PKG_SOURCE_VERSION:=f230c11771875adc1f74bef013e8cea1fa1867bc
 CMAKE_INSTALL:=1
 
 PKG_LICENSE:=GPL-2.0
@@ -40,7 +40,7 @@ CMAKE_OPTIONS += -DEARLY_PATH="$(TARGET_INIT_PATH)"
 define Package/procd/Default
   SECTION:=base
   CATEGORY:=Base system
-  DEPENDS:=+ubusd +ubus +libjson-script +ubox +libubox \
+  DEPENDS:=+ubusd +ubus +libjson-script +ubox +libubox +libudebug \
 	  +libubus +libblobmsg-json +libjson-c +jshn
   TITLE:=OpenWrt system process manager
   USERID:=:dialout=20 :audio=29

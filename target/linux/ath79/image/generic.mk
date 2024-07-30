@@ -6,9 +6,10 @@ include ./common-yuncore.mk
 include ./common-ubnt.mk
 
 DEVICE_VARS += ADDPATTERN_ID ADDPATTERN_VERSION
-DEVICE_VARS += SEAMA_SIGNATURE SEAMA_MTDBLOCK
 DEVICE_VARS += KERNEL_INITRAMFS_PREFIX DAP_SIGNATURE
 DEVICE_VARS += EDIMAX_HEADER_MAGIC EDIMAX_HEADER_MODEL
+DEVICE_VARS += ELECOM_HWID
+DEVICE_VARS += MOXA_MAGIC MOXA_HWID
 DEVICE_VARS += OPENMESH_CE_TYPE ZYXEL_MODEL_STRING
 DEVICE_VARS += SUPPORTED_TELTONIKA_DEVICES
 
@@ -30,6 +31,17 @@ define Build/cybertan-trx
 		-x 32 -a 0x10000 -x -32 -f $@
 	-mv "$@.new" "$@"
 	-rm $@-empty.bin
+endef
+
+define Build/dlink-sge-signature
+	( \
+		crc=$$(gzip -c $@ | tail -c 8 | od -An -tx4 --endian little | cut -d " " -f2); \
+		cat $@; \
+		$(MKHASH) md5 $@ ; \
+		echo $(1); \
+		echo -n $$crc; \
+	) > $@.new
+	mv $@.new $@
 endef
 
 define Build/edimax-headers
@@ -73,7 +85,7 @@ define Build/mkmylofw_16m
 
 	let \
 		size="$$(stat -c%s $@)" \
-		pad="$(subst k,* 1024,$(BLOCKSIZE))" \
+		pad="$(call exp_units,$(BLOCKSIZE))" \
 		pad="(pad - (size % pad)) % pad" \
 		newsize='size + pad' ; \
 		[ $$newsize -lt $$((0x660000)) ] && newsize=0x660000 ; \
@@ -181,23 +193,6 @@ define Build/zyxel-tar-bz2
 	rm -rf $@.tmp
 endef
 
-define Device/seama
-  KERNEL := kernel-bin | append-dtb | relocate-kernel | lzma
-  KERNEL_INITRAMFS := $$(KERNEL) | seama
-  IMAGES += factory.bin
-  SEAMA_MTDBLOCK := 1
-
-  # 64 bytes offset:
-  # - 28 bytes seama_header
-  # - 36 bytes of META data (4-bytes aligned)
-  IMAGE/default := append-kernel | pad-offset $$$$(BLOCKSIZE) 64 | append-rootfs
-  IMAGE/sysupgrade.bin := $$(IMAGE/default) | seama | pad-rootfs | \
-	check-size | append-metadata
-  IMAGE/factory.bin := $$(IMAGE/default) | pad-rootfs -x 64 | seama | \
-	seama-seal | check-size
-  SEAMA_SIGNATURE :=
-endef
-
 
 define Device/8dev_carambola2
   SOC := ar9331
@@ -208,6 +203,16 @@ define Device/8dev_carambola2
   SUPPORTED_DEVICES += carambola2
 endef
 TARGET_DEVICES += 8dev_carambola2
+
+define Device/8dev_carambola3
+  SOC := qca9531
+  DEVICE_VENDOR := 8devices
+  DEVICE_MODEL := Carambola3
+  DEVICE_PACKAGES := kmod-usb2
+  IMAGE_SIZE := 32768k
+  SUPPORTED_DEVICES += carambola3
+endef
+TARGET_DEVICES += 8dev_carambola3
 
 define Device/8dev_lima
   SOC := qca9531
@@ -413,6 +418,21 @@ define Device/aruba_ap-105
 endef
 TARGET_DEVICES += aruba_ap-105
 
+define Device/aruba_ap-115
+  SOC := qca9558
+  DEVICE_VENDOR := Aruba
+  DEVICE_MODEL := AP-115
+  IMAGE_SIZE := 16000k
+  DEVICE_PACKAGES := kmod-usb2
+  LOADER_TYPE := bin
+  LOADER_FLASH_OFFS := 0x102000
+  COMPILE := loader-$(1).bin
+  COMPILE/loader-$(1).bin := loader-okli-compile
+  KERNEL := kernel-bin | append-dtb | lzma | uImage lzma -M 0x4f4b4c49 | loader-okli $(1) 8128 | uImage none
+  KERNEL_INITRAMFS := kernel-bin | append-dtb | lzma | loader-kernel
+endef
+TARGET_DEVICES += aruba_ap-115
+
 define Device/aruba_ap-175
   SOC := ar7161
   DEVICE_VENDOR := Aruba
@@ -466,6 +486,70 @@ define Device/asus_rp-ac66
 	rssileds -swconfig
 endef
 TARGET_DEVICES += asus_rp-ac66
+
+define Device/asus_qcn5502
+  SOC := qcn5502
+  DEVICE_VENDOR := ASUS
+  DEVICE_PACKAGES := kmod-ath10k-ct ath10k-firmware-qca9888-ct
+  KERNEL_INITRAMFS := kernel-bin | append-dtb | uImage none
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | \
+	append-rootfs | pad-rootfs
+endef
+
+define Device/asus_rt-ac59u
+  $(Device/asus_qcn5502)
+  DEVICE_MODEL := RT-AC59U
+  DEVICE_ALT0_VENDOR := ASUS
+  DEVICE_ALT0_MODEL := RT-AC1200GE
+  DEVICE_ALT1_VENDOR := ASUS
+  DEVICE_ALT1_MODEL := RT-AC1500G PLUS
+  DEVICE_ALT2_VENDOR := ASUS
+  DEVICE_ALT2_MODEL := RT-AC1500UHP
+  DEVICE_ALT3_VENDOR := ASUS
+  DEVICE_ALT3_MODEL := RT-AC57U
+  DEVICE_ALT3_VARIANT := v2
+  DEVICE_ALT4_VENDOR := ASUS
+  DEVICE_ALT4_MODEL := RT-AC58U
+  DEVICE_ALT4_VARIANT := v2
+  DEVICE_ALT5_VENDOR := ASUS
+  DEVICE_ALT5_MODEL := RT-ACRH12
+  IMAGE_SIZE := 16000k
+  DEVICE_PACKAGES += kmod-usb2 kmod-usb-ledtrig-usbport
+endef
+TARGET_DEVICES += asus_rt-ac59u
+
+define Device/asus_rt-ac59u-v2
+  $(Device/asus_qcn5502)
+  DEVICE_MODEL := RT-AC59U
+  DEVICE_VARIANT := v2
+  DEVICE_ALT0_VENDOR := ASUS
+  DEVICE_ALT0_MODEL := RT-AC1300G PLUS
+  DEVICE_ALT0_VARIANT := v3
+  DEVICE_ALT1_VENDOR := ASUS
+  DEVICE_ALT1_MODEL := RT-AC57U
+  DEVICE_ALT1_VARIANT := v3
+  DEVICE_ALT2_VENDOR := ASUS
+  DEVICE_ALT2_MODEL := RT-AC58U
+  DEVICE_ALT2_VARIANT := v3
+  IMAGE_SIZE := 32384k
+  DEVICE_PACKAGES += kmod-usb2 kmod-usb-ledtrig-usbport
+endef
+TARGET_DEVICES += asus_rt-ac59u-v2
+
+define Device/asus_zenwifi-cd6n
+  $(Device/asus_qcn5502)
+  DEVICE_MODEL := ZenWiFi CD6N
+  IMAGE_SIZE := 16000k
+endef
+TARGET_DEVICES += asus_zenwifi-cd6n
+
+define Device/asus_zenwifi-cd6r
+  $(Device/asus_qcn5502)
+  DEVICE_MODEL := ZenWiFi CD6R
+  IMAGE_SIZE := 32384k
+endef
+TARGET_DEVICES += asus_zenwifi-cd6r
 
 define Device/atheros_db120
   $(Device/loader-okli-uimage)
@@ -598,7 +682,7 @@ define Device/buffalo_wzr_ar7161
   SOC := ar7161
   BUFFALO_PRODUCT := WZR-HP-AG300H
   DEVICE_PACKAGES := kmod-usb-ohci kmod-usb2 kmod-usb-ledtrig-usbport \
-	kmod-leds-reset kmod-owl-loader
+	kmod-owl-loader
   IMAGE_SIZE := 32320k
   SUPPORTED_DEVICES += wzr-hp-ag300h
 endef
@@ -724,6 +808,17 @@ define Device/comfast_cf-e375ac
 endef
 TARGET_DEVICES += comfast_cf-e375ac
 
+define Device/comfast_cf-e380ac-v2
+  SOC := qca9558
+  DEVICE_VENDOR := COMFAST
+  DEVICE_MODEL := CF-E380AC
+  DEVICE_VARIANT := v2
+  DEVICE_PACKAGES := kmod-usb-core kmod-usb2 \
+	kmod-ath10k-ct ath10k-firmware-qca988x-ct
+  IMAGE_SIZE := 16000k
+endef
+TARGET_DEVICES += comfast_cf-e380ac-v2
+
 define Device/comfast_cf-e5
   SOC := qca9531
   DEVICE_VENDOR := COMFAST
@@ -742,6 +837,16 @@ define Device/comfast_cf-e560ac
   IMAGE_SIZE := 16128k
 endef
 TARGET_DEVICES += comfast_cf-e560ac
+
+define Device/comfast_cf-ew71-v2
+  SOC := qca9531
+  DEVICE_VENDOR := COMFAST
+  DEVICE_MODEL := CF-EW71
+  DEVICE_VARIANT := v2
+  DEVICE_PACKAGES := kmod-usb2 -uboot-envtools -swconfig
+  IMAGE_SIZE := 16192k
+endef
+TARGET_DEVICES += comfast_cf-ew71-v2
 
 define Device/comfast_cf-ew72
   SOC := qca9531
@@ -839,6 +944,22 @@ define Device/compex_wpj563
 endef
 TARGET_DEVICES += compex_wpj563
 
+define Device/dell_apl26-0ae
+  SOC := qca9550
+  DEVICE_VENDOR := Dell
+  DEVICE_MODEL := SonicPoint
+  DEVICE_VARIANT := ACe (APL26-0AE)
+  DEVICE_ALT0_VENDOR := SonicWall
+  DEVICE_ALT0_MODEL := SonicPoint
+  DEVICE_ALT0_VARIANT := ACe (APL26-0AE)
+  DEVICE_PACKAGES := ath10k-firmware-qca988x-ct kmod-ath10k-ct kmod-usb2
+  KERNEL_SIZE := 5952k
+  IMAGE_SIZE := 31680k
+  IMAGE/sysupgrade.bin = append-kernel | pad-to $$$$(BLOCKSIZE) | \
+	append-rootfs | pad-rootfs | check-size | append-metadata
+endef
+TARGET_DEVICES += dell_apl26-0ae
+
 define Device/devolo_dlan-pro-1200plus-ac
   SOC := ar9344
   DEVICE_VENDOR := devolo
@@ -903,6 +1024,40 @@ define Device/devolo_magic-2-wifi
   IMAGE_SIZE := 15872k
 endef
 TARGET_DEVICES += devolo_magic-2-wifi
+
+define Device/dlink_covr
+  $(Device/loader-okli-uimage)
+  SOC := qca9563
+  DEVICE_VENDOR := D-Link
+  DEVICE_PACKAGES := kmod-ath10k-ct ath10k-firmware-qca9888-ct
+  LOADER_FLASH_OFFS := 0x050000
+  LOADER_KERNEL_MAGIC := 0x68737173
+  KERNEL := kernel-bin | append-dtb | lzma | uImage lzma -M 0x68737173
+  IMAGE_SIZE := 14528k
+  IMAGE/recovery.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | \
+	append-rootfs | pad-rootfs | check-size | pad-to 14528k | \
+	append-loader-okli-uimage $(1) | pad-to 15616k
+endef
+
+define Device/dlink_covr-c1200-a1
+  $(Device/dlink_covr)
+  DEVICE_MODEL := COVR-C1200
+  DEVICE_VARIANT := A1
+  IMAGES += factory.bin
+  IMAGE/factory.bin := $$(IMAGE/recovery.bin) | \
+	dlink-sge-signature COVR-C1200 | dlink-sge-image COVR-C1200
+endef
+TARGET_DEVICES += dlink_covr-c1200-a1
+
+define Device/dlink_covr-p2500-a1
+  $(Device/dlink_covr)
+  DEVICE_MODEL := COVR-P2500
+  DEVICE_VARIANT := A1
+  IMAGES += factory.bin recovery.bin
+  IMAGE/factory.bin := $$(IMAGE/recovery.bin) | \
+	dlink-sge-image COVR-P2500 | dlink-sge-signature COVR-P2500
+endef
+TARGET_DEVICES += dlink_covr-p2500-a1
 
 define Device/dlink_dap-13xx
   SOC := qca9533
@@ -1056,10 +1211,10 @@ define Device/dlink_dir-825-b1
   DEVICE_MODEL := DIR-825
   DEVICE_VARIANT := B1
   DEVICE_PACKAGES := kmod-usb-ohci kmod-usb2 kmod-usb-ledtrig-usbport \
-	kmod-leds-reset kmod-owl-loader kmod-switch-rtl8366s
+	kmod-owl-loader kmod-switch-rtl8366s
   IMAGE_SIZE := 7808k
   FACTORY_SIZE := 6144k
-  IMAGES += factory.bin
+# IMAGES += factory.bin
   IMAGE/factory.bin = append-kernel | pad-to $$$$(BLOCKSIZE) | append-rootfs | \
 	pad-rootfs | check-size $$$$(FACTORY_SIZE) | pad-to $$$$(FACTORY_SIZE) | \
 	append-string 01AP94-AR7161-RT-080619-00
@@ -1071,8 +1226,7 @@ define Device/dlink_dir-825-c1
   DEVICE_VENDOR := D-Link
   DEVICE_MODEL := DIR-825
   DEVICE_VARIANT := C1
-  DEVICE_PACKAGES := kmod-usb2 kmod-usb-ledtrig-usbport kmod-leds-reset \
-	kmod-owl-loader
+  DEVICE_PACKAGES := kmod-usb2 kmod-usb-ledtrig-usbport kmod-owl-loader
   SUPPORTED_DEVICES += dir-825-c1
   IMAGE_SIZE := 15936k
   IMAGES := factory.bin sysupgrade.bin
@@ -1089,7 +1243,7 @@ define Device/dlink_dir-835-a1
   DEVICE_VENDOR := D-Link
   DEVICE_MODEL := DIR-835
   DEVICE_VARIANT := A1
-  DEVICE_PACKAGES := kmod-usb2 kmod-leds-reset kmod-owl-loader
+  DEVICE_PACKAGES := kmod-usb2 kmod-owl-loader
   SUPPORTED_DEVICES += dir-835-a1
   IMAGE_SIZE := 15936k
   IMAGES := factory.bin sysupgrade.bin
@@ -1143,40 +1297,39 @@ define Device/dlink_dir-842-c3
 endef
 TARGET_DEVICES += dlink_dir-842-c3
 
-define Device/dlink_dir-859-ax
-  $(Device/seama)
-  SOC := qca9563
-  DEVICE_VENDOR := D-Link
-  DEVICE_MODEL := DIR-859
-  IMAGE_SIZE := 15872k
-  DEVICE_PACKAGES := kmod-usb2 kmod-ath10k-ct-smallbuffers ath10k-firmware-qca988x-ct
-  SEAMA_SIGNATURE := wrgac37_dlink.2013gui_dir859
+define Device/elecom_wab
+  DEVICE_VENDOR := ELECOM
+  IMAGE_SIZE := 14336k
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | append-rootfs | \
+	pad-rootfs | check-size | elx-header $$$$(ELECOM_HWID) 8844A2D168B45A2D
+  DEVICE_PACKAGES := kmod-ath10k-ct ath10k-firmware-qca988x-ct kmod-gpio-beeper \
+	kmod-usb2 kmod-usb-ledtrig-usbport
 endef
 
-define Device/dlink_dir-859-a1
-  $(Device/dlink_dir-859-ax)
-  DEVICE_VARIANT := A1
+define Device/elecom_wab-i1750-ps
+  $(Device/elecom_wab)
+  SOC := qca9558
+  DEVICE_MODEL := WAB-I1750-PS
+  ELECOM_HWID := 0107000d
 endef
-TARGET_DEVICES += dlink_dir-859-a1
+TARGET_DEVICES += elecom_wab-i1750-ps
 
-define Device/dlink_dir-859-a3
-  $(Device/dlink_dir-859-ax)
-  DEVICE_VARIANT := A3
+define Device/elecom_wab-s1167-ps
+  $(Device/elecom_wab)
+  SOC := qca9557
+  DEVICE_MODEL := WAB-S1167-PS
+  ELECOM_HWID := 0107000c
 endef
-TARGET_DEVICES += dlink_dir-859-a3
+TARGET_DEVICES += elecom_wab-s1167-ps
 
-define Device/dlink_dir-869-a1
-  $(Device/seama)
-  SOC := qca9563
-  DEVICE_VENDOR := D-Link
-  DEVICE_MODEL := DIR-869
-  DEVICE_VARIANT := A1
-  IMAGE_SIZE := 15872k
-  DEVICE_PACKAGES := kmod-usb2 kmod-ath10k-ct-smallbuffers ath10k-firmware-qca988x-ct
-  SEAMA_SIGNATURE := wrgac54_dlink.2015_dir869
-  SUPPORTED_DEVICES += dir-869-a1
+define Device/elecom_wab-s600-ps
+  $(Device/elecom_wab)
+  SOC := qca9557
+  DEVICE_MODEL := WAB-S600-PS
+  ELECOM_HWID := 01070028
 endef
-TARGET_DEVICES += dlink_dir-869-a1
+TARGET_DEVICES += elecom_wab-s600-ps
 
 define Device/elecom_wrc-1750ghbk2-i
   SOC := qca9563
@@ -1400,17 +1553,28 @@ define Device/engenius_ews511ap
 endef
 TARGET_DEVICES += engenius_ews511ap
 
-define Device/engenius_ews660ap
+define Device/engenius_ews_dual_ap
   $(Device/senao_loader_okli)
   SOC := qca9558
   DEVICE_VENDOR := EnGenius
-  DEVICE_MODEL := EWS660AP
   DEVICE_PACKAGES := ath10k-firmware-qca988x-ct kmod-ath10k-ct
   IMAGE_SIZE := 11584k
   LOADER_FLASH_OFFS := 0x220000
+endef
+
+define Device/engenius_ews660ap
+  $(Device/engenius_ews_dual_ap)
+  DEVICE_MODEL := EWS660AP
   SENAO_IMGNAME := ar71xx-generic-ews660ap
 endef
 TARGET_DEVICES += engenius_ews660ap
+
+define Device/engenius_ens1750
+  $(Device/engenius_ews_dual_ap)
+  DEVICE_MODEL := ENS1750
+  SENAO_IMGNAME := ar71xx-generic-ens1750
+endef
+TARGET_DEVICES += engenius_ens1750
 
 define Device/enterasys_ws-ap3705i
   SOC := ar9344
@@ -1441,12 +1605,9 @@ define Device/extreme-networks_ws-ap3805i
 endef
 TARGET_DEVICES += extreme-networks_ws-ap3805i
 
-define Device/fortinet_fap-221-b
+define Device/fortinet_fap_common
   $(Device/senao_loader_okli)
-  SOC := ar9344
   DEVICE_VENDOR := Fortinet
-  DEVICE_MODEL := FAP-221-B
-  FACTORY_IMG_NAME := FP221B-9.99-AP-build999-999999-patch99
   IMAGE_SIZE := 9216k
   LOADER_FLASH_OFFS := 0x040000
   IMAGE/factory.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | \
@@ -1454,6 +1615,23 @@ define Device/fortinet_fap-221-b
 	check-size | pad-to $$$$(IMAGE_SIZE) | \
 	append-loader-okli-uimage $(1) | pad-to 10944k | \
 	gzip-filename $$$$(FACTORY_IMG_NAME)
+endef
+
+define Device/fortinet_fap-220-b
+  $(Device/fortinet_fap_common)
+  SOC := ar7161
+  DEVICE_MODEL := FAP-220-B
+  FACTORY_IMG_NAME := FAP22B-9.99-AP-build999-999999-patch99
+  DEVICE_PACKAGES := -uboot-envtools kmod-usb-ohci kmod-usb2 \
+	kmod-owl-loader
+endef
+TARGET_DEVICES += fortinet_fap-220-b
+
+define Device/fortinet_fap-221-b
+  $(Device/fortinet_fap_common)
+  SOC := ar9344
+  DEVICE_MODEL := FAP-221-B
+  FACTORY_IMG_NAME := FP221B-9.99-AP-build999-999999-patch99
 endef
 TARGET_DEVICES += fortinet_fap-221-b
 
@@ -1611,6 +1789,37 @@ define Device/hiwifi_hc6361
   IMAGE_SIZE := 16128k
 endef
 TARGET_DEVICES += hiwifi_hc6361
+
+define Device/huawei_ap5030dn
+  SOC := qca9550
+  DEVICE_VENDOR := Huawei
+  DEVICE_MODEL := AP5030DN
+  DEVICE_PACKAGES := ath10k-firmware-qca988x-ct kmod-ath10k-ct
+  LOADER_TYPE := bin
+  LOADER_FLASH_OFFS := 0x111DC0
+  KERNEL_SIZE := 15360k
+  IMAGE_SIZE := 30720k
+  COMPILE := loader-$(1).bin
+  COMPILE/loader-$(1).bin := loader-okli-compile | pad-to 64k | uImage none
+  KERNEL := kernel-bin | append-dtb | lzma | uImage lzma -M 0x4f4b4c49 | loader-okli $(1) 8128
+  KERNEL_INITRAMFS := kernel-bin | append-dtb | lzma | loader-kernel | uImage none
+endef
+TARGET_DEVICES += huawei_ap5030dn
+
+define Device/huawei_ap6010dn
+  SOC := ar9344
+  DEVICE_VENDOR := Huawei
+  DEVICE_MODEL := AP6010DN
+  LOADER_TYPE := bin
+  LOADER_FLASH_OFFS := 0x111DC0
+  KERNEL_SIZE := 15360k
+  IMAGE_SIZE := 30720k
+  COMPILE := loader-$(1).bin
+  COMPILE/loader-$(1).bin := loader-okli-compile | pad-to 64k | uImage none
+  KERNEL := kernel-bin | append-dtb | lzma | uImage lzma -M 0x4f4b4c49 | loader-okli $(1) 8128
+  KERNEL_INITRAMFS := kernel-bin | append-dtb | lzma | loader-kernel | uImage none
+endef
+TARGET_DEVICES += huawei_ap6010dn
 
 define Device/iodata_etg3-r
   SOC := ar9342
@@ -1804,6 +2013,19 @@ define Device/mercury_mw4530r-v1
 endef
 TARGET_DEVICES += mercury_mw4530r-v1
 
+define Device/moxa_awk-1137c
+  SOC := ar9344
+  DEVICE_MODEL := AWK-1137C
+  DEVICE_VENDOR := MOXA
+  MOXA_MAGIC := 0x8919123028877702
+  MOXA_HWID := 0x01080000
+  IMAGE_SIZE := 14336k
+  DEVICE_PACKAGES := uboot-envtools
+  IMAGES += factory.rom
+  IMAGE/factory.rom := $$(IMAGE/sysupgrade.bin) | moxa-encode-fw
+endef
+TARGET_DEVICES += moxa_awk-1137c
+
 define Device/nec_wx1200cr
   DEVICE_VENDOR := NEC
   IMAGE/default := append-kernel | pad-offset $$$$(BLOCKSIZE) 64 | append-rootfs
@@ -1902,7 +2124,6 @@ define Device/netgear_wndap360
   $(Device/netgear_generic)
   SOC := ar7161
   DEVICE_MODEL := WNDAP360
-  DEVICE_PACKAGES := kmod-leds-reset
   IMAGE_SIZE := 7744k
   BLOCKSIZE := 256k
   KERNEL := kernel-bin | append-dtb | gzip | uImage gzip
@@ -2323,7 +2544,7 @@ define Device/phicomm_k2t
   IMAGE_SIZE := 15744k
   IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | \
 	check-size | append-metadata
-  DEVICE_PACKAGES := kmod-leds-reset kmod-ath10k-ct-smallbuffers ath10k-firmware-qca9888-ct
+  DEVICE_PACKAGES := kmod-ath10k-ct-smallbuffers ath10k-firmware-qca9888-ct
 endef
 TARGET_DEVICES += phicomm_k2t
 
@@ -2822,7 +3043,7 @@ define Device/trendnet_tew-673gru
 	kmod-owl-loader kmod-switch-rtl8366s
   IMAGE_SIZE := 7808k
   FACTORY_SIZE := 6144k
-  IMAGES += factory.bin
+# IMAGES += factory.bin
   IMAGE/factory.bin = append-kernel | pad-to $$$$(BLOCKSIZE) | append-rootfs | \
 	pad-rootfs | check-size $$$$(FACTORY_SIZE) | pad-to $$$$(FACTORY_SIZE) | \
 	append-string AP94-AR7161-RT-080619-01
